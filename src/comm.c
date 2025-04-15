@@ -3,7 +3,60 @@
 #include <string.h>
 
 #include "eecs388_lib.h"
+#define MAX_INTERRUPTS 16
+volatile int intr_count = 0
+volatile int val = 0; /* On/Off value for LED */
+volatile int prev_intr_count = intr_count;
+//Array of function points for interrupts and exceptions
+void (*interrupt_handler[MAX_INTERRUPTS])();
+void (*exception_handler[MAX_INTERRUPTS])();
+//Direct mode trap handler
+void handle_trap(void) __attribute((interrupt));
+void handle_trap()
+{
+    unsigned long mcause = read_csr(mcause);
+    if (mcause & MCAUSE_INT) {
+        printf("interrupt. cause=%d, count=%d\n", mcause & MCAUSE_CAUSE,
+        (int)intr_count);
+        // mask interrupt bit and branch to handler
+        interrupt_handler[mcause & MCAUSE_CAUSE] ();
+    } 
+    else {
+        printf("exception=%d\n", mcause & MCAUSE_CAUSE);
+        // synchronous exception, branch to handler
+        exception_handler[mcause & MCAUSE_CAUSE]();
+    }
+}
+void timer_handler()
+{
+    // YOUR CODE HERE
+    intr_count++;
+    int m_time = get_cycles();
+    int time = 100 * 32768/1000;
+    time += m_time;
+    set_cycles(time);
 
+}
+void enable_timer_interrupt()
+{
+    write_csr(mie, read_csr(mie) | (1 << MIE_MTIE_BIT));
+}
+void enable_interrupt()
+{
+// YOUR CODE HERE
+    write_csr(mstatus,read_csr(mstatus) | (1 << MSTATUS_MIE_BIT));
+
+}
+void disable_interrupt()
+{
+    write_csr(mstatus,read_csr(mstatus) & ~(1 << MSTATUS_MIE_BIT));
+
+}
+//Register our direct mode trap handler function pointer
+void register_trap_handler(void *func)
+{
+    write_csr(mtvec, ((unsigned long)func))
+}
 void auto_brake(int devid)
 {
     // Task-1: 
@@ -30,11 +83,16 @@ void auto_brake(int devid)
             gpio_write(RED_LED, ON);
         }
         else if (dist < 60){
-            gpio_write(RED_LED, ON);
-            delay(100);
-            gpio_write(RED_LED, OFF);
-        }
-    }
+            disable_interrupt();
+            if (prev_intr_count != intr_count) {
+            // toggle led on/off on a new interrupt
+                val ^= 1;
+                // turn on/off LED
+                gpio_write(RED_LED, val);
+                // save off the interrupt count
+                prev_intr_count = intr_count;
+            }
+            enable_interrupt()
 }
 
 int read_from_pi(int devid)
@@ -63,6 +121,17 @@ void steering(int gpio, int pos)
 
 int main()
 {
+
+    // install timer interrupt handler
+    interrupt_handler[MIE_MTIE_BIT] = timer_handler;
+    // write handle_trap address to mtvec
+    register_trap_handler( handle_trap );
+    // enable timer interrupt
+    enable_timer_interrupt();
+    // enable global interrupt
+    enable_interrupt();
+    // cause timer interrupt for some time in future
+    set_cycles( get_cycles() + 40000 )
     // initialize UART channels
     ser_setup(0); // uart0
     ser_setup(1); // uart1
