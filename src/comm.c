@@ -11,9 +11,6 @@ void auto_brake(int devid)
     // Use the directions given in the project document
     uint16_t dist = 0;
     if ('Y' == ser_read(devid) && 'Y' == ser_read(devid)) {
-        gpio_write(RED_LED, OFF);
-        gpio_write(GREEN_LED, OFF);
-        gpio_write(BLUE_LED,OFF);
         uint8_t dist_l = ser_read(devid);
         uint16_t dist_h = ser_read(devid);
         dist_h = dist_h << 8;
