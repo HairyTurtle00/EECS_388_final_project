@@ -4,6 +4,7 @@
 
 #include "eecs388_lib.h"
 #define MAX_INTERRUPTS 16
+
 volatile int intr_count = 0
 volatile int val = 0; /* On/Off value for LED */
 volatile int prev_intr_count = intr_count;
