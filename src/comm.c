@@ -53,6 +53,14 @@ void steering(int gpio, int pos)
     // Task-3: 
     // Your code goes here (Use Lab 05 for reference)
     // Check the project document to understand the task
+    int pwm = 2400 - (1856 - (int)round(pos * (464.0 / 45.0)));
+    if(!(pwm > 2400 || pwm < 544)){
+        gpio_mode(PIN_19,OUTPUT);
+        gpio_write(PIN_19, ON);
+        delay_usec(pwm);
+        gpio_write(PIN_19,OFF);
+        delay_usec(20000-pwm);
+    }
 }
 
 
