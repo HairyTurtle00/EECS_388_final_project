@@ -39,7 +39,7 @@ void uart0_handler() {
 
 void uart1_handler() {
     //Read from the uart
-    char c = ser_read(0);
+    char c = ser_read(1);
 
     disable_interrupt();
     //Add the data from uart if there is room
@@ -219,9 +219,16 @@ int main()
 
     // Set up timer interrupt
     register_trap_handler(handle_trap);
+    
+    // Register external interrupt handler
+    interrupt_handler[MIE_MEIE_BIT] = extint_handler;
+    enable_external_interrupt();
+
+    // Register UART interrupt handlers
+    plic_handler[3] = uart0_handler;
+    plic_handler[4] = uart1_handler;
+    
     interrupt_handler[MIE_MTIE_BIT] = timer_handler;
-    interrupt_handler[3] = uart0_handler;
-    interrupt_handler[4] = uart1_handler;
     enable_timer_interrupt();
     enable_interrupt();
     set_cycles(get_cycles() + 3277); // First interrupt in 100 ms
