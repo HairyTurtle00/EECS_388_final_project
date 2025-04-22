@@ -107,23 +107,36 @@ int read_from_pi(int devid)
     char buffer[32];
     int idx = 0;
     int angle = 0;
+    int sign = 1;
 
+    // Read characters until newline
     while (ser_available(devid) > 0 && idx < sizeof(buffer) - 1) {
         char c = ser_read(devid);
-        buffer[idx++] = c;
-
         if (c == '\n' || c == '\r') {
             break;
         }
+        buffer[idx++] = c;
     }
 
     buffer[idx] = '\0';
 
-    if (sscanf(buffer, "%d", &angle) == 1) {
-        return angle;
+    idx = 0;
+
+    // Check for optional sign
+    if (buffer[idx] == '-') {
+        sign = -1;
+        idx++;
+    } else if (buffer[idx] == '+') {
+        idx++;
     }
 
-    return 0;
+    // Read characters before the decimal point only
+    while (buffer[idx] >= '0' && buffer[idx] <= '9') {
+        angle = angle * 10 + (buffer[idx] - '0');
+        idx++;
+    }
+
+    return angle * sign;
 }
 
 void steering(int gpio, int pos)
