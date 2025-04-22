@@ -38,7 +38,6 @@ void auto_brake(int devid)
                 gpio_write(RED_LED, ON);
                 emergency_brake = 0;
             } else {
-                // Instead of flashing using interrupts, keep RED LED ON steadily
                 gpio_write(RED_LED, ON);
                 emergency_brake = 1;
             }
