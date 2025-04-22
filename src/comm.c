@@ -34,7 +34,7 @@ void uart0_handler() {
     disable_interrupt();
     //Add the data from uart if there is room
     if (count_0 < UART_BUFFER_SIZE) {
-        uart_buffer0[write_index_0] = c;
+        uart0_buffer[write_index_0] = c;
         write_index_0 = (write_index_0 + 1) % UART_BUFFER_SIZE;  //Wrap around if needed
         count_0++;
     }
@@ -48,7 +48,7 @@ void uart1_handler() {
     disable_interrupt();
     //Add the data from uart if there is room
     if (count_1 < UART_BUFFER_SIZE) {
-        uart_buffer1[write_index_1] = c;
+        uart1_buffer[write_index_1] = c;
         write_index_1 = (write_index_1 + 1) % UART_BUFFER_SIZE;  //Wrap around if needed
         count_1++;
     }
@@ -66,53 +66,56 @@ void timer_handler()
     // Schedule next interrupt for 100 ms later
     set_cycles(get_cycles() + 3277);
 }
+void led_control(int dist){
+    gpio_write(RED_LED, OFF);
+    gpio_write(GREEN_LED, OFF);
+    gpio_write(BLUE_LED,OFF);
+    
+    if(dist > 200){
+        gpio_write(GREEN_LED, ON);
+        emergency_brake = 0;
+    }
+    else if(dist < 200 && dist > 100){
+        gpio_write(GREEN_LED, ON);
+        gpio_write(RED_LED, ON);
+        emergency_brake = 0;
+    }
+    else if(dist <= 100 && dist > 60){
+        gpio_write(RED_LED, ON);
+        emergency_brake = 1;
+    }
+    else if (dist < 60){
+        gpio_write(RED_LED, ON);
+        emergency_brake = 0;
+    }
+    printf("\nDistance: %d cm", dist);
 
+}
 void auto_brake(int devid)
 {
     if(count_0 >= 4){
         uint16_t dist = 0;
         //Check for first "Y"
-        if (uart_buffer0[read_index_0] == 'Y') {
+        if (uart0_buffer[read_index_0] == 'Y') {
             read_index_0 = (read_index_0 + 1) % UART_BUFFER_SIZE;  //Move the read index to the next byte
             count_0--;
             //Check for second "Y"
-            if (uart_buffer0[read_index_0] == 'Y') {
+            if (uart0_buffer[read_index_0] == 'Y') {
                 read_index_0 = (read_index_0 + 1) % UART_BUFFER_SIZE;  //check the next byte 
                 count_0--;
 
                 //Read the lsb from the queue 
-                uint8_t dist_l = uart_buffer0[read_index_0];
+                uint8_t dist_l = uart0_buffer[read_index_0];
                 read_index_0 = (read_index_0 + 1) % UART_BUFFER_SIZE;
                 count_0--;
                 //Read the MSB from the queue
-                uint16_t dist_h = uart_buffer0[read_index_0];
-                read_index_1 = (read_index_0 + 1) % UART_BUFFER_SIZE;
+                uint16_t dist_h = uart0_buffer[read_index_0];
+                read_index_0 = (read_index_0 + 1) % UART_BUFFER_SIZE;
                 count_0--;
                 //Combine the two to get the full data
                 dist_h = dist_h << 8;
                 dist = dist_h | dist_l;
-                gpio_write(RED_LED, OFF);
-                gpio_write(GREEN_LED, OFF);
-                gpio_write(BLUE_LED,OFF);
-        
-                if(dist > 200){
-                    gpio_write(GREEN_LED, ON);
-                    emergency_brake = 0;
-                }
-                else if(dist < 200 && dist > 100){
-                    gpio_write(GREEN_LED, ON);
-                    gpio_write(RED_LED, ON);
-                    emergency_brake = 0;
-                }
-                else if(dist <= 100 && dist > 60){
-                    gpio_write(RED_LED, ON);
-                    emergency_brake = 1;
-                }
-                else if (dist < 60){
-                    gpio_write(RED_LED, ON);
-                    emergency_brake = 0;
-                }
-                printf("\nDistance: %d cm", dist);
+                led_control(dist);
             }
         }
     }
@@ -132,7 +135,7 @@ int read_from_pi(int devid)
     //Read data from the interrupt handler buffer
     while (count_1 > 0 && idx < sizeof(buffer) - 1) {
         //Read the character from the buffer
-        char c = uart_buffer1[read_index_1];
+        char c = uart1_buffer[read_index_1];
         
         //Update read_index and count
         read_index_1 = (read_index_1 + 1) % UART_BUFFER_SIZE;
