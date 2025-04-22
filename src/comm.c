@@ -134,41 +134,36 @@ int read_from_pi(int devid)
     char buffer[32];
     int idx = 0;
     int angle = 0;
+    int sign = 1;
+    char ch;
 
-    // Check if data is ready 
-    if (count_1 == 0) {
-        return 0;  //No data available
-    }
-
-    //Read data from the interrupt handler buffer
-    while (count_1 > 0 && idx < sizeof(buffer) - 1) {
-        //Read the character from the buffer
-        char c = uart1_buffer[read_index_1];
+    // Read characters until newline
+    while (ser_isready(devid)) {
+        ch = ser_read(devid);
         
-        //Update read_index and count
-        read_index_1 = (read_index_1 + 1) % UART_BUFFER_SIZE;
-        disable_interrupt();
-        count_1--;
-        enable_interrupt();
-
-        //Add the character to the buffer
-        buffer[idx++] = c;
-
-        //Check for end of string
-        if (c == '\n' || c == '\r') {break;}
+        // Store character if it's a digit or a minus sign
+        if (isdigit(ch) || (ch == '-' && idx == 0)) {
+            buffer[idx++] = ch;
+            
+            // Prevent buffer overflow
+            if (idx >= sizeof(buffer) - 1)
+                break;
+        }
+        // End of number, process what we have
+        else if (ch == '\n' || ch == '\r' || ch == ' ') {
+            break;
+        }
     }
-
-    // Ensure null termination
+    
+    // Null-terminate the buffer
     buffer[idx] = '\0';
-
-    // Parse the angle value
-    if (sscanf(buffer, "%f", &angle) == 1) {
-        angle = (int)angle;
-        angle = normalize(angle);
-        return angle;
+    
+    // Convert the string to an integer
+    if (idx > 0) {
+        angle = atoi(buffer);
     }
-
-    return 0;
+    
+    return angle;
 }
 
 void steering(int gpio, int pos)
@@ -230,7 +225,7 @@ int main()
         int gpio = PIN_19;
         for (int i = 0; i < 10; i++) {
             if (angle > 0) {
-                steering(gpio, 180);
+                steering(gpio, angle);
             }
             else {
                 steering(gpio, 0);
