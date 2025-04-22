@@ -20,8 +20,10 @@ volatile int emergency_brake = 0;
 volatile int intr_count = 0;
 
 // Interrupt vectors
-void (*interrupt_handler[MAX_INTERRUPTS])();
-void (*exception_handler[MAX_INTERRUPTS])();
+extern void handle_trap(void);
+extern void (*interrupt_handler[MAX_INTERRUPTS])();
+extern void (*exception_handler[MAX_INTERRUPTS])();
+extern volatile int intr_count;
 
 void uart0_handler() {
     //Read from the uart
@@ -51,21 +53,6 @@ void uart1_handler() {
     enable_interrupt();
 }
 
-// Direct mode trap handler
-void handle_trap(void) __attribute((interrupt));
-void handle_trap()
-{  
-    unsigned long mcause = read_csr(mcause);
-
-    if (mcause & MCAUSE_INT) {
-        printf("interrupt. cause=%d, count=%d\n", mcause & MCAUSE_CAUSE, (int)intr_count);
-        interrupt_handler[mcause & MCAUSE_CAUSE]();
-    } else {
-        printf("exception=%d\n", mcause & MCAUSE_CAUSE);
-        exception_handler[mcause & MCAUSE_CAUSE]();
-    }
-}
-
 /* Timer interrupt handler */
 void timer_handler()
 {
@@ -76,26 +63,6 @@ void timer_handler()
 
     // Schedule next interrupt for 100 ms later
     set_cycles(get_cycles() + 3277);
-}
-
-void enable_timer_interrupt()
-{
-    write_csr(mie, read_csr(mie) | (1 << MIE_MTIE_BIT));
-}
-
-void enable_interrupt()
-{
-    write_csr(mstatus, read_csr(mstatus) | (1 << MSTATUS_MIE_BIT));
-}
-
-void disable_interrupt()
-{
-    write_csr(mstatus, read_csr(mstatus) & ~(1 << MSTATUS_MIE_BIT));
-}
-
-void register_trap_handler(void *func)
-{
-    write_csr(mtvec, ((unsigned long)func));
 }
 
 void auto_brake(int devid)
@@ -218,14 +185,14 @@ int main()
     gpio_mode(BLUE_LED, OUTPUT);
     gpio_mode(GREEN_LED, OUTPUT);
 
-    // Set up timer interrupt
+    //Set up timer interrupt
     register_trap_handler(handle_trap);
     
-    // Register external interrupt handler
+    //Register external interrupt handler
     interrupt_handler[MIE_MEIE_BIT] = extint_handler;
     enable_external_interrupt();
 
-    // Register UART interrupt handlers
+    //Register UART interrupt handlers
     plic_handler[3] = uart0_handler;
     plic_handler[4] = uart1_handler;
     
