@@ -49,7 +49,7 @@ void uart1_handler() {
     //Add the data from uart if there is room
     if (count_1 < UART_BUFFER_SIZE) {
         uart_buffer1[write_index_1] = c;
-        write_index = (write_index_1 + 1) % UART_BUFFER_SIZE;  //Wrap around if needed
+        write_index_1 = (write_index_1 + 1) % UART_BUFFER_SIZE;  //Wrap around if needed
         count_1++;
     }
     enable_interrupt();
@@ -73,7 +73,7 @@ void auto_brake(int devid)
         uint16_t dist = 0;
         //Check for first "Y"
         if (uart_buffer0[read_index_0] == 'Y') {
-            read_index = (read_index_0 + 1) % UART_BUFFER_SIZE;  //Move the read index to the next byte
+            read_index_0 = (read_index_0 + 1) % UART_BUFFER_SIZE;  //Move the read index to the next byte
             count_0--;
             //Check for second "Y"
             if (uart_buffer0[read_index_0] == 'Y') {
@@ -86,7 +86,7 @@ void auto_brake(int devid)
                 count_0--;
                 //Read the MSB from the queue
                 uint16_t dist_h = uart_buffer0[read_index_0];
-                read_index = (read_index_0 + 1) % UART_BUFFER_SIZE;
+                read_index_1 = (read_index_0 + 1) % UART_BUFFER_SIZE;
                 count_0--;
                 //Combine the two to get the full data
                 dist_h = dist_h << 8;
@@ -135,7 +135,7 @@ int read_from_pi(int devid)
         char c = uart_buffer1[read_index_1];
         
         //Update read_index and count
-        read_index = (read_index_1 + 1) % UART_BUFFER_SIZE;
+        read_index_1 = (read_index_1 + 1) % UART_BUFFER_SIZE;
         count_1--;
 
         //Add the character to the buffer
