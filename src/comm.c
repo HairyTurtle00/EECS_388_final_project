@@ -162,7 +162,7 @@ int read_from_pi(int devid)
 
     // Parse the angle value
     if (sscanf(buffer, "%f", &angle) == 1) {
-        angle = (int)temp;
+        angle = (int)angle;
         angle = normalize(angle)
         return angle;
     }
