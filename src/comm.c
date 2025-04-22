@@ -124,6 +124,10 @@ void auto_brake(int devid)
     }
 }
 
+int normalize(int angle){
+    return 3*(angle + 30);
+}
+
 int read_from_pi(int devid)
 {
     char buffer[32];
@@ -142,7 +146,9 @@ int read_from_pi(int devid)
         
         //Update read_index and count
         read_index_1 = (read_index_1 + 1) % UART_BUFFER_SIZE;
+        disable_interrupts();
         count_1--;
+        enable_interrupts();
 
         //Add the character to the buffer
         buffer[idx++] = c;
@@ -155,7 +161,9 @@ int read_from_pi(int devid)
     buffer[idx] = '\0';
 
     // Parse the angle value
-    if (sscanf(buffer, "%d", &angle) == 1) {
+    if (sscanf(buffer, "%f", &angle) == 1) {
+        angle = (int)temp;
+        angle = normalize(angle)
         return angle;
     }
 
