@@ -51,33 +51,32 @@ int read_from_pi(int devid)
     int sign = 1;
 
     // Read characters until newline
-    while (ser_available(devid) > 0 && idx < sizeof(buffer) - 1) {
-        char c = ser_read(devid);
-        if (c == '\n' || c == '\r') {
+    while (ser_isread(devid)) {
+        ch = ser_read(devid);
+        
+        // Store character if it's a digit or a minus sign
+        if (isdigit(ch) || (ch == '-' && idx == 0)) {
+            buffer[idx++] = ch;
+            
+            // Prevent buffer overflow
+            if (idx >= sizeof(buffer) - 1)
+                break;
+        }
+        // End of number, process what we have
+        else if (ch == '\n' || ch == '\r' || ch == ' ') {
             break;
         }
-        buffer[idx++] = c;
     }
-
+    
+    // Null-terminate the buffer
     buffer[idx] = '\0';
-
-    idx = 0;
-
-    // Check for optional sign
-    if (buffer[idx] == '-') {
-        sign = -1;
-        idx++;
-    } else if (buffer[idx] == '+') {
-        idx++;
+    
+    // Convert the string to an integer
+    if (idx > 0) {
+        angle = atoi(buffer);
     }
-
-    // Read characters before the decimal point only
-    while (buffer[idx] >= '0' && buffer[idx] <= '9') {
-        angle = angle * 10 + (buffer[idx] - '0');
-        idx++;
-    }
-
-    return angle * sign;
+    
+    return angle;
 }
 
 void steering(int gpio, int pos)
