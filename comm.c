@@ -65,41 +65,34 @@ void register_trap_handler(void *func)
 
 void auto_brake(int devid)
 {
-    uint8_t buffer[9];
-    uint16_t distance;
+    uint16_t dist = 0;
+    if ('Y' == ser_read(devid) && 'Y' == ser_read(devid)) {
+        uint8_t dist_l = ser_read(devid);
+        uint16_t dist_h = ser_read(devid);
+        dist_h = dist_h << 8;
+        dist = dist_h | dist_l;
+        gpio_write(RED_LED, OFF);
+        gpio_write(GREEN_LED, OFF);
+        gpio_write(BLUE_LED,OFF);
 
-    if (ser_available(devid) >= 9) {
-        for (int i = 0; i < 9; i++) {
-            buffer[i] = ser_read(devid);
+        if(dist > 200){
+            gpio_write(GREEN_LED, ON);
+            emergency_brake = 0;
         }
-
-        if (buffer[0] == 0x59 && buffer[1] == 0x59) {
-            distance = buffer[2] | (buffer[3] << 8);
-
-            gpio_write(RED_LED, OFF);
-            gpio_write(GREEN_LED, OFF);
-            gpio_write(BLUE_LED, OFF);
-
-            if (distance > 200) {
-                gpio_write(GREEN_LED, ON);
-                emergency_brake = 0;
-            }
-            else if (distance > 100 && distance <= 200) {
-                gpio_write(RED_LED, ON);
-                gpio_write(GREEN_LED, ON);
-                emergency_brake = 0;
-            }
-            else if (distance > 60 && distance <= 100) {
-                gpio_write(RED_LED, ON);
-                emergency_brake = 0;
-            }
-            else if (distance <= 60) {
-                emergency_brake = 1;
-            }
-
-            printf("\nDistance: %d cm", distance);
+        else if(dist < 200 && dist > 100){
+            gpio_write(GREEN_LED, ON);
+            gpio_write(RED_LED, ON);
+            emergency_brake = 0;
         }
-    }
+        else if(dist <= 100 && dist > 60){
+            gpio_write(RED_LED, ON);
+            emergency_brake = 1;
+        }
+        else if (dist < 60){
+            gpio_write(RED_LED, val);
+            emergency_brake = 0;
+        }
+        printf("\nDistance: %d cm", distance);
 }
 
 int read_from_pi(int devid)
@@ -141,14 +134,17 @@ int read_from_pi(int devid)
 
 void steering(int gpio, int pos)
 {
-    int pulse_length;
-
-    pulse_length = SERVO_PULSE_MIN + (pos * (SERVO_PULSE_MAX - SERVO_PULSE_MIN)) / 180;
-
-    gpio_write(gpio, ON);
-    delay_usec(pulse_length);
-    gpio_write(gpio, OFF);
-    delay_usec(SERVO_PERIOD - pulse_length);
+    // Task-3: 
+    // Your code goes here (Use Lab 05 for reference)
+    // Check the project document to understand the task
+    int pwm = 2400 - (1856 - (int)round(pos * (464.0 / 45.0)));
+    if(!(pwm > 2400 || pwm < 544)){
+        gpio_mode(PIN_19,OUTPUT);
+        gpio_write(PIN_19, ON);
+        delay_usec(pwm);
+        gpio_write(PIN_19,OFF);
+        delay_usec(20000-pwm);
+    }
 }
 
 int main()
