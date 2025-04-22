@@ -100,7 +100,7 @@ void register_trap_handler(void *func)
 
 void auto_brake(int devid)
 {
-    if(count > 2){
+    if(count >= 4){
         uint16_t dist = 0;
         //Check for first "Y"
         if (uart_buffer0[read_index] == 'Y') {
