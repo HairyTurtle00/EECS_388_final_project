@@ -220,8 +220,8 @@ int main()
     // Set up timer interrupt
     register_trap_handler(handle_trap);
     interrupt_handler[MIE_MTIE_BIT] = timer_handler;
-    uart0_interrupt_handler[UART0_IRQ] = uart0_handler;
-    uart1_interrupt_handler[UART1_IRQ] = uart1_handler;
+    interrupt_handler[3] = uart0_handler;
+    interrupt_handler[4] = uart1_handler;
     enable_timer_interrupt();
     enable_interrupt();
     set_cycles(get_cycles() + 3277); // First interrupt in 100 ms
