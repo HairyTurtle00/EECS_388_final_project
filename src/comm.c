@@ -3,105 +3,170 @@
 #include <string.h>
 
 #include "eecs388_lib.h"
-#define MAX_INTERRUPTS 16
 
-volatile int intr_count = 0
-volatile int val = 0; /* On/Off value for LED */
-volatile int prev_intr_count = intr_count;
-//Array of function points for interrupts and exceptions
+#define SERVO_PULSE_MAX 2400 /* 2400 us */
+#define SERVO_PULSE_MIN 544  /* 544 us */
+#define SERVO_PERIOD 20000   /* 20000 us (20ms) */
+#define UART_BUFFER_SIZE 64
+
+volatile char uart_buffer[UART_BUFFER_SIZE];
+volatile int read_index = 0;
+volatile int write_index = 0;
+volatile int count = 0;//Number of elements in the queue 
+volatile int flash_state = 0;
+volatile int emergency_brake = 0;
+volatile int intr_count = 0;
+
+// Interrupt vectors
 void (*interrupt_handler[MAX_INTERRUPTS])();
 void (*exception_handler[MAX_INTERRUPTS])();
-//Direct mode trap handler
+
+void uart0_handler() {
+    //Read from the uart
+    char c = ser_read(0);
+
+    disable_interrupt();
+    //Add the data from uart if there is room
+    if (count < UART_BUFFER_SIZE) {
+        uart_buffer[write_index] = c;
+        write_index = (write_index + 1) % UART_BUFFER_SIZE;  //Wrap around if needed
+        count++;
+    }
+    enable_interrupt();
+
+// Direct mode trap handler
 void handle_trap(void) __attribute((interrupt));
 void handle_trap()
-{
+{  
     unsigned long mcause = read_csr(mcause);
+
     if (mcause & MCAUSE_INT) {
-        printf("interrupt. cause=%d, count=%d\n", mcause & MCAUSE_CAUSE,
-        (int)intr_count);
-        // mask interrupt bit and branch to handler
-        interrupt_handler[mcause & MCAUSE_CAUSE] ();
-    } 
-    else {
+        printf("interrupt. cause=%d, count=%d\n", mcause & MCAUSE_CAUSE, (int)intr_count);
+        interrupt_handler[mcause & MCAUSE_CAUSE]();
+    } else {
         printf("exception=%d\n", mcause & MCAUSE_CAUSE);
-        // synchronous exception, branch to handler
         exception_handler[mcause & MCAUSE_CAUSE]();
     }
 }
+
+/* Timer interrupt handler */
 void timer_handler()
 {
-    // YOUR CODE HERE
-    intr_count++;
-    int m_time = get_cycles();
-    int time = 100 * 32768/1000;
-    time += m_time;
-    set_cycles(time);
+    if (emergency_brake) {
+        flash_state = !flash_state;
+        gpio_write(RED_LED, flash_state);
+    }
 
+    // Schedule next interrupt for 100 ms later
+    set_cycles(get_cycles() + 3277);
 }
+
 void enable_timer_interrupt()
 {
     write_csr(mie, read_csr(mie) | (1 << MIE_MTIE_BIT));
 }
+
 void enable_interrupt()
 {
-// YOUR CODE HERE
-    write_csr(mstatus,read_csr(mstatus) | (1 << MSTATUS_MIE_BIT));
-
+    write_csr(mstatus, read_csr(mstatus) | (1 << MSTATUS_MIE_BIT));
 }
+
 void disable_interrupt()
 {
-    write_csr(mstatus,read_csr(mstatus) & ~(1 << MSTATUS_MIE_BIT));
-
+    write_csr(mstatus, read_csr(mstatus) & ~(1 << MSTATUS_MIE_BIT));
 }
-//Register our direct mode trap handler function pointer
+
 void register_trap_handler(void *func)
 {
-    write_csr(mtvec, ((unsigned long)func))
+    write_csr(mtvec, ((unsigned long)func));
 }
+
 void auto_brake(int devid)
 {
-    // Task-1: 
-    // Your code here (Use Lab 02 - Lab 04 for reference)
-    // Use the directions given in the project document
-    uint16_t dist = 0;
-    if ('Y' == ser_read(devid) && 'Y' == ser_read(devid)) {
-        uint8_t dist_l = ser_read(devid);
-        uint16_t dist_h = ser_read(devid);
-        dist_h = dist_h << 8;
-        dist = dist_h | dist_l;
-        gpio_write(RED_LED, OFF);
-        gpio_write(GREEN_LED, OFF);
-        gpio_write(BLUE_LED,OFF);
+    if(count > 2){
+        uint16_t dist = 0;
+        //Check for first "Y"
+        if (uart_buffer[read_index] == 'Y') {
+            read_index = (read_index + 1) % UART_BUFFER_SIZE;  //Move the read index to the next byte
+            count--;
+            //Check for second "Y"
+            if (uart_buffer[read_index] == 'Y') {
+                read_index = (read_index + 1) % UART_BUFFER_SIZE;  //check the next byte 
+                count--;
 
-        if(dist > 200){
-            gpio_write(GREEN_LED, ON);
-        }
-        else if(dist < 200 && dist > 100){
-            gpio_write(GREEN_LED, ON);
-            gpio_write(RED_LED, ON);
-        }
-        else if(dist <= 100 && dist > 60){
-            gpio_write(RED_LED, ON);
-        }
-        else if (dist < 60){
-            disable_interrupt();
-            if (prev_intr_count != intr_count) {
-            // toggle led on/off on a new interrupt
-                val ^= 1;
-                // turn on/off LED
-                gpio_write(RED_LED, val);
-                // save off the interrupt count
-                prev_intr_count = intr_count;
+                //Read the lsb from the queue 
+                uint8_t dist_l = uart_buffer[read_index];
+                read_index = (read_index + 1) % UART_BUFFER_SIZE;
+                count--;
+                //Read the MSB from the queue
+                uint16_t dist_h = uart_buffer[read_index];
+                read_index = (read_index + 1) % UART_BUFFER_SIZE;
+                count--;
+                //Combine the two to get the full data
+                dist_h = dist_h << 8;
+                dist = dist_h | dist_l;
+                gpio_write(RED_LED, OFF);
+                gpio_write(GREEN_LED, OFF);
+                gpio_write(BLUE_LED,OFF);
+        
+                if(dist > 200){
+                    gpio_write(GREEN_LED, ON);
+                    emergency_brake = 0;
+                }
+                else if(dist < 200 && dist > 100){
+                    gpio_write(GREEN_LED, ON);
+                    gpio_write(RED_LED, ON);
+                    emergency_brake = 0;
+                }
+                else if(dist <= 100 && dist > 60){
+                    gpio_write(RED_LED, ON);
+                    emergency_brake = 1;
+                }
+                else if (dist < 60){
+                    gpio_write(RED_LED, ON);
+                    emergency_brake = 0;
+                }
+                printf("\nDistance: %d cm", dist);
             }
-            enable_interrupt()
+        }
+    }
 }
 
 int read_from_pi(int devid)
 {
-    // Task-2: 
-    // You code goes here (Use Lab 09 for reference)
-    // After performing Task-2 at dnn.py code, modify this part to read angle values from Raspberry Pi.
+    char buffer[32];
+    int idx = 0;
+    int angle = 0;
+    int sign = 1;
 
+    // Read characters until newline
+    while (ser_available(devid) > 0 && idx < sizeof(buffer) - 1) {
+        char c = ser_read(devid);
+        if (c == '\n' || c == '\r') {
+            break;
+        }
+        buffer[idx++] = c;
+    }
+
+    buffer[idx] = '\0';
+
+    idx = 0;
+
+    // Check for optional sign
+    if (buffer[idx] == '-') {
+        sign = -1;
+        idx++;
+    } else if (buffer[idx] == '+') {
+        idx++;
+    }
+
+    // Read characters before the decimal point only
+    while (buffer[idx] >= '0' && buffer[idx] <= '9') {
+        angle = angle * 10 + (buffer[idx] - '0');
+        idx++;
+    }
+
+    return angle * sign;
 }
 
 void steering(int gpio, int pos)
@@ -119,63 +184,51 @@ void steering(int gpio, int pos)
     }
 }
 
-
 int main()
 {
+    ser_setup(0); // UART0: LiDAR
+    ser_setup(1); // UART1: Pi
 
-    // install timer interrupt handler
-    interrupt_handler[MIE_MTIE_BIT] = timer_handler;
-    // write handle_trap address to mtvec
-    register_trap_handler( handle_trap );
-    // enable timer interrupt
-    enable_timer_interrupt();
-    // enable global interrupt
-    enable_interrupt();
-    // cause timer interrupt for some time in future
-    set_cycles( get_cycles() + 40000 )
-    // initialize UART channels
-    ser_setup(0); // uart0
-    ser_setup(1); // uart1
-    int pi_to_hifive = 1; //The connection with Pi uses uart 1
-    int lidar_to_hifive = 0; //the lidar uses uart 0
-    
+    int pi_to_hifive = 1;
+    int lidar_to_hifive = 0;
+
     printf("\nUsing UART %d for Pi -> HiFive", pi_to_hifive);
     printf("\nUsing UART %d for Lidar -> HiFive", lidar_to_hifive);
-    
-    //Initializing PINs
+
     gpio_mode(PIN_19, OUTPUT);
     gpio_mode(RED_LED, OUTPUT);
     gpio_mode(BLUE_LED, OUTPUT);
     gpio_mode(GREEN_LED, OUTPUT);
 
+    // Set up timer interrupt
+    register_trap_handler(handle_trap);
+    interrupt_handler[MIE_MTIE_BIT] = timer_handler;
+    interrupt_handler[MIE_MEIE_BIT] = uart0_handler;
+    enable_timer_interrupt();
+    enable_interrupt();
+    set_cycles(get_cycles() + 3277); // First interrupt in 100 ms
+
     printf("Setup completed.\n");
     printf("Begin the main loop.\n");
 
     while (1) {
+        auto_brake(lidar_to_hifive);
+        int angle = read_from_pi(pi_to_hifive);
+        printf("\nangle=%d", angle);
 
-        auto_brake(lidar_to_hifive); // measuring distance using lidar and braking
-        int angle = read_from_pi(pi_to_hifive); //getting turn direction from pi
-        printf("\nangle=%d", angle) 
-        int gpio = PIN_19; 
-        for (int i = 0; i < 10; i++){
-            // Here, we set the angle to 180 if the prediction from the DNN is a positive angle
-            // and 0 if the prediction is a negative angle.
-            // This is so that it is easier to see the movement of the servo.
-            // You are welcome to pass the angle values directly to the steering function.
-            // If the servo function is written correctly, it should still work,
-            // only the movements of the servo will be more subtle
-            if(angle>0){
+        int gpio = PIN_19;
+        for (int i = 0; i < 10; i++) {
+            if (angle > 0) {
                 steering(gpio, 180);
             }
             else {
-                steering(gpio,0);
+                steering(gpio, 0);
             }
-            
-            // Uncomment the line below to see the actual angles on the servo.
-            // Remember to comment out the if-else statement above!
+
+            // Uncomment this to directly use angle
             // steering(gpio, angle);
         }
-
     }
+
     return 0;
 }
