@@ -9,10 +9,12 @@
 #define SERVO_PERIOD 20000   /* 20000 us (20ms) */
 #define UART_BUFFER_SIZE 64
 
-volatile char uart_buffer[UART_BUFFER_SIZE];
+volatile char uart0_buffer[UART_BUFFER_SIZE];
+volatile char uart1_buffer[UART_BUFFER_SIZE];
 volatile int read_index = 0;
 volatile int write_index = 0;
-volatile int count = 0;//Number of elements in the queue 
+volatile int count_0 = 0;//Number of elements in the uart0 queue 
+volatile int count_1 = 0;//Number of elements in the uart0 queue 
 volatile int flash_state = 0;
 volatile int emergency_brake = 0;
 volatile int intr_count = 0;
@@ -27,12 +29,27 @@ void uart0_handler() {
 
     disable_interrupt();
     //Add the data from uart if there is room
-    if (count < UART_BUFFER_SIZE) {
-        uart_buffer[write_index] = c;
+    if (count_0 < UART_BUFFER_SIZE) {
+        uart_buffer0[write_index] = c;
         write_index = (write_index + 1) % UART_BUFFER_SIZE;  //Wrap around if needed
-        count++;
+        count_0++;
     }
     enable_interrupt();
+}
+
+void uart1_handler() {
+    //Read from the uart
+    char c = ser_read(0);
+
+    disable_interrupt();
+    //Add the data from uart if there is room
+    if (count_1 < UART_BUFFER_SIZE) {
+        uart_buffer1[write_index] = c;
+        write_index = (write_index + 1) % UART_BUFFER_SIZE;  //Wrap around if needed
+        count_1++;
+    }
+    enable_interrupt();
+}
 
 // Direct mode trap handler
 void handle_trap(void) __attribute((interrupt));
@@ -86,20 +103,20 @@ void auto_brake(int devid)
     if(count > 2){
         uint16_t dist = 0;
         //Check for first "Y"
-        if (uart_buffer[read_index] == 'Y') {
+        if (uart_buffer0[read_index] == 'Y') {
             read_index = (read_index + 1) % UART_BUFFER_SIZE;  //Move the read index to the next byte
             count--;
             //Check for second "Y"
-            if (uart_buffer[read_index] == 'Y') {
+            if (uart_buffer0[read_index] == 'Y') {
                 read_index = (read_index + 1) % UART_BUFFER_SIZE;  //check the next byte 
                 count--;
 
                 //Read the lsb from the queue 
-                uint8_t dist_l = uart_buffer[read_index];
+                uint8_t dist_l = uart_buffer0[read_index];
                 read_index = (read_index + 1) % UART_BUFFER_SIZE;
                 count--;
                 //Read the MSB from the queue
-                uint16_t dist_h = uart_buffer[read_index];
+                uint16_t dist_h = uart_buffer0[read_index];
                 read_index = (read_index + 1) % UART_BUFFER_SIZE;
                 count--;
                 //Combine the two to get the full data
@@ -203,7 +220,8 @@ int main()
     // Set up timer interrupt
     register_trap_handler(handle_trap);
     interrupt_handler[MIE_MTIE_BIT] = timer_handler;
-    interrupt_handler[MIE_MEIE_BIT] = uart0_handler;
+    uart0_interrupt_handler[UART0_IRQ] = uart0_handler;
+    uart1_interrupt_handler[UART1_IRQ] = uart1_handler;
     enable_timer_interrupt();
     enable_interrupt();
     set_cycles(get_cycles() + 3277); // First interrupt in 100 ms
