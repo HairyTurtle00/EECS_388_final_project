@@ -10,26 +10,11 @@
 
 volatile int flash_state = 0;
 volatile int emergency_brake = 0;
-volatile int intr_count = 0;
 
-// Interrupt vectors
-void (*interrupt_handler[MAX_INTERRUPTS])();
-void (*exception_handler[MAX_INTERRUPTS])();
-
-// Direct mode trap handler
-void handle_trap(void) __attribute((interrupt));
-void handle_trap()
-{  
-    unsigned long mcause = read_csr(mcause);
-
-    if (mcause & MCAUSE_INT) {
-        printf("interrupt. cause=%d, count=%d\n", mcause & MCAUSE_CAUSE, (int)intr_count);
-        interrupt_handler[mcause & MCAUSE_CAUSE]();
-    } else {
-        printf("exception=%d\n", mcause & MCAUSE_CAUSE);
-        exception_handler[mcause & MCAUSE_CAUSE]();
-    }
-}
+extern void handle_trap(void);
+extern void (*interrupt_handler[MAX_INTERRUPTS])();
+extern void (*exception_handler[MAX_INTERRUPTS])();
+extern volatile int intr_count;
 
 /* Timer interrupt handler */
 void timer_handler()
@@ -39,60 +24,52 @@ void timer_handler()
         gpio_write(RED_LED, flash_state);
     }
 
-    // Schedule next interrupt for 100 ms later
-    set_cycles(get_cycles() + 3277);
-}
-
-void enable_timer_interrupt()
-{
-    write_csr(mie, read_csr(mie) | (1 << MIE_MTIE_BIT));
-}
-
-void enable_interrupt()
-{
-    write_csr(mstatus, read_csr(mstatus) | (1 << MSTATUS_MIE_BIT));
-}
-
-void disable_interrupt()
-{
-    write_csr(mstatus, read_csr(mstatus) & ~(1 << MSTATUS_MIE_BIT));
-}
-
-void register_trap_handler(void *func)
-{
-    write_csr(mtvec, ((unsigned long)func));
+    // Schedule next interrupt for 100 ms later (32.768 kHz clock)
+    set_cycles(get_cycles() + (uint64_t)(32768 * 0.1)); // 3277 ticks = 100ms
 }
 
 void auto_brake(int devid)
 {
-    uint16_t dist = 0;
-    if ('Y' == ser_read(devid) && 'Y' == ser_read(devid)) {
-        uint8_t dist_l = ser_read(devid);
-        uint16_t dist_h = ser_read(devid);
-        dist_h = dist_h << 8;
-        dist = dist_h | dist_l;
-        gpio_write(RED_LED, OFF);
-        gpio_write(GREEN_LED, OFF);
-        gpio_write(BLUE_LED,OFF);
+    uint8_t buffer[9];
+    uint16_t distance;
 
-        if(dist > 200){
-            gpio_write(GREEN_LED, ON);
-            emergency_brake = 0;
+    if (ser_isready(devid)) {
+        // Read all 9 bytes of the LiDAR data packet
+        for (int i = 0; i < 9; i++) {
+            buffer[i] = ser_read(devid);
         }
-        else if(dist < 200 && dist > 100){
-            gpio_write(GREEN_LED, ON);
-            gpio_write(RED_LED, ON);
-            emergency_brake = 0;
+
+        // Check header bytes (0x59 0x59)
+        if (buffer[0] == 0x59 && buffer[1] == 0x59) {
+            // Extract distance from bytes 2 and 3
+            distance = buffer[2] | (buffer[3] << 8);
+
+            // Turn off all LEDs before setting new state
+            gpio_write(RED_LED, OFF);
+            gpio_write(GREEN_LED, OFF);
+            gpio_write(BLUE_LED, OFF);
+
+            // Set LED and emergency brake state based on distance
+            if (distance > 200) {
+                gpio_write(GREEN_LED, ON);
+                emergency_brake = 0;
+            }
+            else if (distance > 100 && distance <= 200) {
+                gpio_write(RED_LED, ON);
+                gpio_write(GREEN_LED, ON);
+                emergency_brake = 0;
+            }
+            else if (distance > 60 && distance <= 100) {
+                gpio_write(RED_LED, ON);
+                emergency_brake = 0;
+            }
+            else if (distance <= 60) {
+                emergency_brake = 1;
+            }
+
+            printf("\nDistance: %d cm", distance);
         }
-        else if(dist <= 100 && dist > 60){
-            gpio_write(RED_LED, ON);
-            emergency_brake = 1;
-        }
-        else if (dist < 60){
-            gpio_write(RED_LED, val);
-            emergency_brake = 0;
-        }
-        printf("\nDistance: %d cm", distance);
+    }
 }
 
 int read_from_pi(int devid)
@@ -100,55 +77,50 @@ int read_from_pi(int devid)
     char buffer[32];
     int idx = 0;
     int angle = 0;
-    int sign = 1;
 
-    // Read characters until newline
-    while (ser_available(devid) > 0 && idx < sizeof(buffer) - 1) {
+    // Read until we get a newline or reach buffer limit
+    while (ser_isready(devid) && idx < sizeof(buffer) - 1) {
         char c = ser_read(devid);
+        buffer[idx++] = c;
+
         if (c == '\n' || c == '\r') {
             break;
         }
-        buffer[idx++] = c;
     }
 
+    // Ensure null termination
     buffer[idx] = '\0';
 
-    idx = 0;
-
-    // Check for optional sign
-    if (buffer[idx] == '-') {
-        sign = -1;
-        idx++;
-    } else if (buffer[idx] == '+') {
-        idx++;
+    // Parse the angle value
+    if (sscanf(buffer, "%d", &angle) == 1) {
+        return angle;
     }
 
-    // Read characters before the decimal point only
-    while (buffer[idx] >= '0' && buffer[idx] <= '9') {
-        angle = angle * 10 + (buffer[idx] - '0');
-        idx++;
-    }
-
-    return angle * sign;
+    return 0;
 }
 
 void steering(int gpio, int pos)
 {
-    // Task-3: 
-    // Your code goes here (Use Lab 05 for reference)
-    // Check the project document to understand the task
-    int pwm = 2400 - (1856 - (int)round(pos * (464.0 / 45.0)));
-    if(!(pwm > 2400 || pwm < 544)){
-        gpio_mode(PIN_19,OUTPUT);
-        gpio_write(PIN_19, ON);
-        delay_usec(pwm);
-        gpio_write(PIN_19,OFF);
-        delay_usec(20000-pwm);
-    }
+    int pulse_length;
+
+    // Constrain pos to valid range [0-180]
+    if (pos < 0) pos = 0;
+    if (pos > 180) pos = 180;
+
+    // Calculate pulse length
+    pulse_length = SERVO_PULSE_MIN + (pos * (SERVO_PULSE_MAX - SERVO_PULSE_MIN)) / 180;
+
+    // Generate PWM signal
+    gpio_write(gpio, ON);
+    delay_usec(pulse_length);
+    gpio_write(gpio, OFF);
+    delay_usec(SERVO_PERIOD - pulse_length);
 }
+
 
 int main()
 {
+    // Set up serial ports
     ser_setup(0); // UART0: LiDAR
     ser_setup(1); // UART1: Pi
 
@@ -158,37 +130,38 @@ int main()
     printf("\nUsing UART %d for Pi -> HiFive", pi_to_hifive);
     printf("\nUsing UART %d for Lidar -> HiFive", lidar_to_hifive);
 
+    // Set up GPIO pins
     gpio_mode(PIN_19, OUTPUT);
     gpio_mode(RED_LED, OUTPUT);
     gpio_mode(BLUE_LED, OUTPUT);
     gpio_mode(GREEN_LED, OUTPUT);
 
     // Set up timer interrupt
-    register_trap_handler(handle_trap);
+    register_trap_handler(handle_trap); // Using handle_trap from eecs388_lib.c
     interrupt_handler[MIE_MTIE_BIT] = timer_handler;
     enable_timer_interrupt();
     enable_interrupt();
-    set_cycles(get_cycles() + 3277); // First interrupt in 100 ms
+    
+    // First interrupt in 100 ms
+    set_cycles(get_cycles() + (uint64_t)(32768 * 0.1)); // 3277 ticks = 100ms
 
     printf("Setup completed.\n");
     printf("Begin the main loop.\n");
 
     while (1) {
+        // Handle auto-braking based on LiDAR data
         auto_brake(lidar_to_hifive);
+        
+        // Read steering angle from Pi
         int angle = read_from_pi(pi_to_hifive);
         printf("\nangle=%d", angle);
 
         int gpio = PIN_19;
+        
+        // Control steering servo
         for (int i = 0; i < 10; i++) {
-            if (angle > 0) {
-                steering(gpio, 180);
-            }
-            else {
-                steering(gpio, 0);
-            }
-
-            // Uncomment this to directly use angle
-            // steering(gpio, angle);
+            // Use the actual angle value instead of just 0 or 180
+            steering(gpio, angle);
         }
     }
 
