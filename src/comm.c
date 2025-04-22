@@ -154,36 +154,37 @@ int read_from_pi(int devid)
     char buffer[32];
     int idx = 0;
     int angle = 0;
-    int sign = 1;
 
-    // Read characters until newline
-    while (ser_available(devid) > 0 && idx < sizeof(buffer) - 1) {
-        char c = ser_read(devid);
-        if (c == '\n' || c == '\r') {
-            break;
-        }
-        buffer[idx++] = c;
+    // Check if data is ready 
+    if (count_1 == 0) {
+        return 0;  //No data available
     }
 
+    //Read data from the interrupt handler buffer
+    while (count_1 > 0 && idx < sizeof(buffer) - 1) {
+        //Read the character from the buffer
+        char c = uart_buffer1[read_index];
+        
+        //Update read_index and count
+        read_index = (read_index + 1) % UART_BUFFER_SIZE;
+        count_1--;
+
+        //Add the character to the buffer
+        buffer[idx++] = c;
+
+        //Check for end of string
+        if (c == '\n' || c == '\r') {break;}
+    }
+
+    // Ensure null termination
     buffer[idx] = '\0';
 
-    idx = 0;
-
-    // Check for optional sign
-    if (buffer[idx] == '-') {
-        sign = -1;
-        idx++;
-    } else if (buffer[idx] == '+') {
-        idx++;
+    // Parse the angle value
+    if (sscanf(buffer, "%d", &angle) == 1) {
+        return angle;
     }
 
-    // Read characters before the decimal point only
-    while (buffer[idx] >= '0' && buffer[idx] <= '9') {
-        angle = angle * 10 + (buffer[idx] - '0');
-        idx++;
-    }
-
-    return angle * sign;
+    return 0;
 }
 
 void steering(int gpio, int pos)
