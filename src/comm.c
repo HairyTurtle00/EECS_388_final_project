@@ -1,8 +1,10 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <cmath>
 
 #include "eecs388_lib.h"
+#include "eecs388_lib.c"
 
 #define SERVO_PULSE_MAX 2400 /* 2400 us */
 #define SERVO_PULSE_MIN 544  /* 544 us */
@@ -22,7 +24,6 @@ volatile int count_0 = 0;//Number of elements in the uart0 queue
 volatile int count_1 = 0;//Number of elements in the uart1 queue 
 volatile int flash_state = 0;
 volatile int emergency_brake = 0;
-volatile int intr_count = 0;
 
 // Interrupt vectors
 extern void handle_trap(void);
@@ -146,9 +147,9 @@ int read_from_pi(int devid)
         
         //Update read_index and count
         read_index_1 = (read_index_1 + 1) % UART_BUFFER_SIZE;
-        disable_interrupts();
+        disable_interrupt();
         count_1--;
-        enable_interrupts();
+        enable_interrupt();
 
         //Add the character to the buffer
         buffer[idx++] = c;
@@ -161,10 +162,9 @@ int read_from_pi(int devid)
     buffer[idx] = '\0';
 
     // Parse the angle value
-    float temp;
-    if (sscanf(buffer, "%f", &temp) == 1) {
-        angle = (int)temp;
-        angle = normalize(angle)
+    if (sscanf(buffer, "%f", &angle) == 1) {
+        angle = (int)angle;
+        angle = normalize(angle);
         return angle;
     }
 
