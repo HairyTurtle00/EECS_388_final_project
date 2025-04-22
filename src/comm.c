@@ -9,14 +9,17 @@
 #define SERVO_PERIOD 20000   /* 20000 us (20ms) */
 #define UART_BUFFER_SIZE 64
 
+//Declare the two buffers for interrupts 
 volatile char uart0_buffer[UART_BUFFER_SIZE];
 volatile char uart1_buffer[UART_BUFFER_SIZE];
+//Read and write indices 
 volatile int read_index_0 = 0;
 volatile int read_index_1 = 0;
 volatile int write_index_0 = 0;
 volatile int write_index_1 = 0;
+
 volatile int count_0 = 0;//Number of elements in the uart0 queue 
-volatile int count_1 = 0;//Number of elements in the uart0 queue 
+volatile int count_1 = 0;//Number of elements in the uart1 queue 
 volatile int flash_state = 0;
 volatile int emergency_brake = 0;
 volatile int intr_count = 0;
@@ -202,6 +205,7 @@ int main()
     plic_handler[4] = uart1_handler;
     
     interrupt_handler[MIE_MTIE_BIT] = timer_handler;
+    //Enable interrupts 
     enable_timer_interrupt();
     enable_interrupt();
     set_cycles(get_cycles() + 3277); // First interrupt in 100 ms
