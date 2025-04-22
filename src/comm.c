@@ -11,8 +11,10 @@
 
 volatile char uart0_buffer[UART_BUFFER_SIZE];
 volatile char uart1_buffer[UART_BUFFER_SIZE];
-volatile int read_index = 0;
-volatile int write_index = 0;
+volatile int read_index_0 = 0;
+volatile int read_index_1 = 0;
+volatile int write_index_0 = 0;
+volatile int write_index_1 = 0;
 volatile int count_0 = 0;//Number of elements in the uart0 queue 
 volatile int count_1 = 0;//Number of elements in the uart0 queue 
 volatile int flash_state = 0;
@@ -32,8 +34,8 @@ void uart0_handler() {
     disable_interrupt();
     //Add the data from uart if there is room
     if (count_0 < UART_BUFFER_SIZE) {
-        uart_buffer0[write_index] = c;
-        write_index = (write_index + 1) % UART_BUFFER_SIZE;  //Wrap around if needed
+        uart_buffer0[write_index_0] = c;
+        write_index_0 = (write_index_0 + 1) % UART_BUFFER_SIZE;  //Wrap around if needed
         count_0++;
     }
     enable_interrupt();
@@ -46,8 +48,8 @@ void uart1_handler() {
     disable_interrupt();
     //Add the data from uart if there is room
     if (count_1 < UART_BUFFER_SIZE) {
-        uart_buffer1[write_index] = c;
-        write_index = (write_index + 1) % UART_BUFFER_SIZE;  //Wrap around if needed
+        uart_buffer1[write_index_1] = c;
+        write_index = (write_index_1 + 1) % UART_BUFFER_SIZE;  //Wrap around if needed
         count_1++;
     }
     enable_interrupt();
@@ -67,25 +69,25 @@ void timer_handler()
 
 void auto_brake(int devid)
 {
-    if(count >= 4){
+    if(count_0 >= 4){
         uint16_t dist = 0;
         //Check for first "Y"
-        if (uart_buffer0[read_index] == 'Y') {
-            read_index = (read_index + 1) % UART_BUFFER_SIZE;  //Move the read index to the next byte
-            count--;
+        if (uart_buffer0[read_index_0] == 'Y') {
+            read_index = (read_index_0 + 1) % UART_BUFFER_SIZE;  //Move the read index to the next byte
+            count_0--;
             //Check for second "Y"
-            if (uart_buffer0[read_index] == 'Y') {
-                read_index = (read_index + 1) % UART_BUFFER_SIZE;  //check the next byte 
-                count--;
+            if (uart_buffer0[read_index_0] == 'Y') {
+                read_index_0 = (read_index_0 + 1) % UART_BUFFER_SIZE;  //check the next byte 
+                count_0--;
 
                 //Read the lsb from the queue 
-                uint8_t dist_l = uart_buffer0[read_index];
-                read_index = (read_index + 1) % UART_BUFFER_SIZE;
-                count--;
+                uint8_t dist_l = uart_buffer0[read_index_0];
+                read_index_0 = (read_index_0 + 1) % UART_BUFFER_SIZE;
+                count_0--;
                 //Read the MSB from the queue
-                uint16_t dist_h = uart_buffer0[read_index];
-                read_index = (read_index + 1) % UART_BUFFER_SIZE;
-                count--;
+                uint16_t dist_h = uart_buffer0[read_index_0];
+                read_index = (read_index_0 + 1) % UART_BUFFER_SIZE;
+                count_0--;
                 //Combine the two to get the full data
                 dist_h = dist_h << 8;
                 dist = dist_h | dist_l;
@@ -130,10 +132,10 @@ int read_from_pi(int devid)
     //Read data from the interrupt handler buffer
     while (count_1 > 0 && idx < sizeof(buffer) - 1) {
         //Read the character from the buffer
-        char c = uart_buffer1[read_index];
+        char c = uart_buffer1[read_index_1];
         
         //Update read_index and count
-        read_index = (read_index + 1) % UART_BUFFER_SIZE;
+        read_index = (read_index_1 + 1) % UART_BUFFER_SIZE;
         count_1--;
 
         //Add the character to the buffer
